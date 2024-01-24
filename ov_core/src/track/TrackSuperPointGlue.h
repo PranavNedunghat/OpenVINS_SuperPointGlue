@@ -93,15 +93,16 @@ protected:
    */
 
   void perform_detection_stereo(const cv::Mat &img0, const cv::Mat &img1, const cv::Mat &mask0, const cv::Mat &mask1,
-                                std::vector<cv::KeyPoint> &pts0, std::vector<cv::KeyPoint> &pts1, cv::Mat &desc0, cv::Mat &desc1,
-                                size_t cam_id0, size_t cam_id1, std::vector<size_t> &ids0, std::vector<size_t> &ids1);
+                                               std::vector<cv::KeyPoint> &pts0, std::vector<cv::KeyPoint> &pts1, Eigen::Matrix<double,259,Eigen::Dynamic> &desc0,
+                                               Eigen::Matrix<double,259,Eigen::Dynamic> &desc1, size_t cam_id0, size_t cam_id1, std::vector<size_t> &ids0,
+                                               std::vector<size_t> &ids1);
 
   /**
    * @brief Find matches between two keypoint+descriptor sets.
    * @param pts0 first vector of keypoints
    * @param pts1 second vector of keypoints
-   * @param desc0 first vector of descriptors
-   * @param desc1 second vector of decriptors
+   * @param desc0 first matrix of confidence scores+keypoints+descriptors
+   * @param desc1 second matrix of confidence scores+keypoints+decriptors
    * @param id0 id of the first camera
    * @param id1 id of the second camera
    * @param matches vector of matches that we have found
@@ -111,25 +112,25 @@ protected:
    * Original code is from the "RobustMatcher" in the opencv examples, and seems to give very good results in the matches.
    * https://github.com/opencv/opencv/blob/master/samples/cpp/tutorial_code/calib3d/real_time_pose_estimation/src/RobustMatcher.cpp
    */
-  void robust_match(const std::vector<cv::KeyPoint> &pts0, const std::vector<cv::KeyPoint> &pts1, const cv::Mat &desc0,
-                    const cv::Mat &desc1, size_t id0, size_t id1, std::vector<cv::DMatch> &matches);
+  //void robust_match(const std::vector<cv::KeyPoint> &pts0, const std::vector<cv::KeyPoint> &pts1, const cv::Mat &desc0,
+  //                  const cv::Mat &desc1, size_t id0, size_t id1, std::vector<cv::DMatch> &matches);
 
   // Helper functions for the robust_match function
   // Original code is from the "RobustMatcher" in the opencv examples
   // https://github.com/opencv/opencv/blob/master/samples/cpp/tutorial_code/calib3d/real_time_pose_estimation/src/RobustMatcher.cpp
-  void robust_ratio_test(std::vector<std::vector<cv::DMatch>> &matches);
-  void robust_symmetry_test(std::vector<std::vector<cv::DMatch>> &matches1, std::vector<std::vector<cv::DMatch>> &matches2,
-                            std::vector<cv::DMatch> &good_matches);
+  //void robust_ratio_test(std::vector<std::vector<cv::DMatch>> &matches);
+  //void robust_symmetry_test(std::vector<std::vector<cv::DMatch>> &matches1, std::vector<std::vector<cv::DMatch>> &matches2,
+  //                          std::vector<cv::DMatch> &good_matches);
 
   // Timing variables
   boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
 
   // Our orb extractor
-  cv::Ptr<cv::ORB> orb0 = cv::ORB::create();
-  cv::Ptr<cv::ORB> orb1 = cv::ORB::create();
+  //cv::Ptr<cv::ORB> orb0 = cv::ORB::create();
+  //cv::Ptr<cv::ORB> orb1 = cv::ORB::create();
 
   // Our descriptor matcher
-  cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce-Hamming");
+  //cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce-Hamming");
 
   // Parameters for our FAST grid detector
   int threshold;
@@ -144,7 +145,7 @@ protected:
   double knn_ratio;
 
   // Confidence Score + Keypoints + Descriptor matrices for SuperGlue matching.
-  std::unordered_map<size_t, Eigen<double,259,Eigen::Dynamic>> desc_last;
+  std::unordered_map<size_t, Eigen::Matrix<double,259,Eigen::Dynamic>> desc_last;
   // Path to config file of SuperPoint and SuperGlue
   std::string config_path;
   // Path to SuperPoint and SuperGlue Inference Engine weights
@@ -155,6 +156,10 @@ protected:
   std::shared_ptr<SuperPoint> SuperPoint_Eng0,SuperPoint_Eng1;
   // SuperGlue Inference Engine
   std::shared_ptr<SuperGlue> SuperGlue_Eng0,SuperGlue_Eng1;
+  // Image Width
+  int width;
+  // Image Height
+  int height;
     
 };  
 

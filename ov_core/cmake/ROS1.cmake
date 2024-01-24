@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.3)
 
 # Find ROS build system
-find_package(catkin QUIET COMPONENTS roscpp rosbag sensor_msgs cv_bridge)
+find_package(catkin REQUIRED COMPONENTS roscpp rosbag sensor_msgs cv_bridge superpoint_superglue)
 
 # Describe ROS project
 option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
 if (catkin_FOUND AND ENABLE_ROS)
     add_definitions(-DROS_AVAILABLE=1)
     catkin_package(
-            CATKIN_DEPENDS roscpp rosbag sensor_msgs cv_bridge
+            CATKIN_DEPENDS roscpp rosbag sensor_msgs cv_bridge superpoint_superglue
             INCLUDE_DIRS src/
             LIBRARIES ov_core_lib
     )
@@ -38,7 +38,7 @@ list(APPEND thirdparty_libraries
 ##################################################
 # Include the SuperPoint and SuperGlue directory
 ##################################################
-add_subdirectory(${PROJECT_SOURCE_DIR}/src/SuperPointGlue)
+#add_subdirectory(${PROJECT_SOURCE_DIR}/src/SuperPointGlue)
 
 
 ##################################################
@@ -64,7 +64,7 @@ list(APPEND LIBRARY_SOURCES
 )
 file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
 add_library(ov_core_lib SHARED ${LIBRARY_SOURCES} ${LIBRARY_HEADERS})
-target_link_libraries(ov_core_lib ${thirdparty_libraries} superpoint_superglue_lib)
+target_link_libraries(ov_core_lib ${thirdparty_libraries} "/home/pranav/catkin_ws/devel/lib/libsuperpoint_superglue_lib.so")
 target_include_directories(ov_core_lib PUBLIC src/)
 install(TARGETS ov_core_lib
         ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
