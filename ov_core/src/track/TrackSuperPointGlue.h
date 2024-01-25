@@ -38,29 +38,30 @@ public:
       : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
         min_px_dist(minpxdist), knn_ratio(knnratio) 
         {
-            config_path = "/home/pranav/ws_catkin/src/superpoint_superglue/config/config.yaml";
-		        model_dir =  "/home/pranav/ws_catkin/src/superpoint_superglue/weights/";
+            config_path = "/home/pranav/catkin_ws/src/superpoint_superglue/config/config.yaml";
+		        model_dir =  "/home/pranav/catkin_ws/src/superpoint_superglue/weights/";
             Configs configs(config_path, model_dir);
 		        width = configs.superglue_config.image_width;
 		        height = configs.superglue_config.image_height;
-            SuperPoint_Eng0 = std::make_shared<SuperPoint>(configs.superpoint_config);
-            SuperPoint_Eng1 = std::make_shared<SuperPoint>(configs.superpoint_config);
+            SuperPoint_Eng = std::make_shared<SuperPoint>(configs.superpoint_config);
             PRINT_ALL("Building SuperPoint Inference Engine. This may take some time...\n");
-            if(!SuperPoint_Eng0->build() || !SuperPoint_Eng1->build())
+            std::cout<<"Building SuperPoint Inference Engine. This may take some time..."<<std::endl;
+            if(!SuperPoint_Eng->build())
             {
                 PRINT_ALL("Failed to build SuperPoint engine!!\n");
                 return;
             }
-            SuperGlue_Eng0 = std::make_shared<SuperGlue>(configs.superglue_config);
-            SuperGlue_Eng1 = std::make_shared<SuperGlue>(configs.superglue_config);
+            SuperGlue_Eng = std::make_shared<SuperGlue>(configs.superglue_config);
             PRINT_ALL("Building SuperGlue Inference Engine.\n");
-            if (!SuperGlue_Eng0->build() || !SuperGlue_Eng1->build())
+            std::cout<<"Building SuperGlue Inference Engine."<<std::endl;
+            if (!SuperGlue_Eng->build())
             {
                 PRINT_ALL("Failed to build SuperGlue engine!!\n");
                 return;
             }
 
             PRINT_ALL("SuperPoint and SuperGlue Engine build success!!\n");
+            std::cout<<"SuperPoint and SuperGlue Engine build success!!"<<std::endl;
         }
 
   /**
@@ -153,9 +154,9 @@ protected:
   // Width and height of image to be sent to SuperPoint engine
   int SuperPoint_img_width,SuperPoint_img_height;
   // SuperPoint Inference Engine
-  std::shared_ptr<SuperPoint> SuperPoint_Eng0,SuperPoint_Eng1;
+  std::shared_ptr<SuperPoint> SuperPoint_Eng;
   // SuperGlue Inference Engine
-  std::shared_ptr<SuperGlue> SuperGlue_Eng0,SuperGlue_Eng1;
+  std::shared_ptr<SuperGlue> SuperGlue_Eng;
   // Image Width
   int width;
   // Image Height

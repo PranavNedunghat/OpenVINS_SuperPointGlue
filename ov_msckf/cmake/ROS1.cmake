@@ -29,6 +29,7 @@ include_directories(
         ${Boost_INCLUDE_DIRS}
         ${CERES_INCLUDE_DIRS}
         ${catkin_INCLUDE_DIRS}
+        ${YAML_CPP_INCLUDE_DIR}
 )
 
 # Set link libraries used by all binaries
@@ -37,6 +38,7 @@ list(APPEND thirdparty_libraries
         ${OpenCV_LIBRARIES}
         ${CERES_LIBRARIES}
         ${catkin_LIBRARIES}
+        yaml-cpp
 )
 
 # If we are not building with ROS then we need to manually link to its headers

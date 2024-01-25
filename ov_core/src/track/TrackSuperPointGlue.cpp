@@ -103,12 +103,14 @@ void TrackSuperPointGlue::feed_stereo(const CameraData &message, size_t msg_id_l
   // Perform temporal matching using the score+points+desc Matrices and the SuperGlue Engine. Since its being done in parallel, two instances of the engine
   // are being used. If this is too computationally expensive, we can get rid of the parallelism and stick with one SuperGlue engine.
   // Question: Does it matter what order we send the Matrices since we are doing temporal matching? For now, I have followed the same order as OpenVINS.
-  parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
-                  for (int i = range.start; i < range.end; i++) {
-                    bool is_left = (i == 0);
-                    (is_left ? SuperGlue_Eng0 : SuperGlue_Eng1)->matching_points(desc_last[is_left ? cam_id_left : cam_id_right], is_left ? desc_left_new : desc_right_new, is_left ? matches_ll : matches_rr);
-                  }
-                }));
+  //parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
+  //               for (int i = range.start; i < range.end; i++) {
+  //                  bool is_left = (i == 0);
+  //                  (is_left ? SuperGlue_Eng0 : SuperGlue_Eng1)->matching_points(desc_last[is_left ? cam_id_left : cam_id_right], is_left ? desc_left_new : desc_right_new, is_left ? matches_ll : matches_rr);
+  //                }
+  //              }));
+  SuperGlue_Eng->matching_points(desc_last[cam_id_left],desc_left_new,matches_ll);
+  SuperGlue_Eng->matching_points(desc_last[cam_id_right],desc_right_new,matches_rr);
   }
   rT3 = boost::posix_time::microsec_clock::local_time();
 
@@ -238,27 +240,39 @@ void TrackSuperPointGlue::perform_detection_stereo(const cv::Mat &img0, const cv
 
   // Question: What is the use of these masks that is implemented in the Descriptor Tracker as seen in TrackDescriptor.cpp in this same function?
   Eigen::Matrix<double,259,Eigen::Dynamic> pts_desc_0, pts_desc_1; 
+  cv::Mat Im0, Im1, match_image;
+  cv::resize(img0, Im0, cv::Size(width, height));
+  cv::resize(img1, Im1, cv::Size(width, height));
   std::vector<cv::KeyPoint> pts0_ext, pts1_ext;
-  parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
-                  for (int i = range.start; i < range.end; i++) {
-                    bool is_left = (i == 0);
-                    (is_left ? SuperPoint_Eng0 : SuperPoint_Eng1)->infer(is_left ? img0 : img1, is_left ? pts_desc_0 : pts_desc_1);
-                  }
-                }));
+//  parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
+//                  for (int i = range.start; i < range.end; i++) {
+//                    bool is_left = (i == 0);
+//                    (is_left ? SuperPoint_Eng0 : SuperPoint_Eng1)->infer(is_left ? img0 : img1, is_left ? pts_desc_0 : pts_desc_1);
+//                  }
+//                }));
+  if(!SuperPoint_Eng->infer(Im0,pts_desc_0))
+  {
+    PRINT_WARNING("Failed to extract features from Camera 0!\n");
+		return;
+  }
+  if(!SuperPoint_Eng->infer(Im1,pts_desc_1))
+  {
+    PRINT_WARNING("Failed to extract features from Camera 1!\n");
+		return;
+  }
 
   // Do matching from the left to the right image
   std::vector<cv::DMatch> matches;
   // Add a check to make sure that the Eigen Matrices are not empty. Else SuperGlue will give a segmentation fault.
-  if(pts_desc_0.cols()<=0 || pts_desc_1.cols()<=0)
+  if(pts_desc_0.cols()>0 || pts_desc_1.cols()>0)
 			{
-				PRINT_WARNING("No features in frame! Skipping this frame!\n");
-				return;
-			} 
+				
   // Here, the SuperGlue Engine takes over from the robust_match function implemented for OpenVINS. The matching_points function does the same 
   // set of operations as robust match i.e. match points followed by RANSAC which filters the points and appends to the matches vector.
   // Assumption: SuperPoint outputs x,y coordinates in the pixel coordinate frame with top-left corner as the origin. This should be compatible with OpenVINS Tracking.
 
-  SuperGlue_Eng0->matching_points(pts_desc_0,pts_desc_1,matches);
+        SuperGlue_Eng->matching_points(pts_desc_0,pts_desc_1,matches);
+      }
 
   //Question: Why do we need to match features across the left and right cameras?
 
@@ -278,6 +292,10 @@ void TrackSuperPointGlue::perform_detection_stereo(const cv::Mat &img0, const cv
 				double y = pts_desc_1(2,i);
 				pts1_ext.emplace_back(x,y, 8, -1, score);
 			}
+  // Visualize the SuperPoint and SuperGlue engine outputs
+  VisualizeMatching(Im0,pts0_ext, Im1, pts1_ext, matches, match_image);
+  cv::imshow("Feature Matching",match_image);
+	cv::waitKey(1);
 
   // Create a 2D occupancy grid for this current image
   // Note that we scale this down, so that each grid point is equal to a set of pixels
