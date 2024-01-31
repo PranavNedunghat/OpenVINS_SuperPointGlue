@@ -135,9 +135,9 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
                                                          state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
                                                          params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist));
   } else {
-    trackFEATS = std::shared_ptr<TrackBase>(new TrackDescriptor(
+    trackFEATS = std::shared_ptr<TrackBase>(new TrackSuperPointGlue(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio));
+        params.grid_x, params.grid_y, params.min_px_dist));
   }
 
   // Initialize our aruco tag extractor
@@ -149,7 +149,7 @@ VioManager::VioManager(VioManagerOptions &params_) : thread_init_running(false),
   if (params.use_SuperPointGlue) {
     trackSuperPointGlue = std::shared_ptr<TrackBase>(new TrackSuperPointGlue(
         state->_cam_intrinsics_cameras, init_max_features, state->_options.max_aruco_features, params.use_stereo, params.histogram_method,
-        params.fast_threshold, params.grid_x, params.grid_y, params.min_px_dist, params.knn_ratio));
+        params.grid_x, params.grid_y, params.min_px_dist));
   }
 
   // Initialize our state propagator

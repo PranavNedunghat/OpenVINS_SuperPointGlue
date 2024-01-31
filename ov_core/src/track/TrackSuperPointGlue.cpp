@@ -26,14 +26,143 @@ void TrackSuperPointGlue::feed_new_camera(const CameraData &message) {
 
   // If we are doing binocular tracking, then we should parallize our tracking
   size_t num_images = message.images.size();
-  
- if (num_images == 2 && use_stereo) {
+ if (num_images == 1) {
+    feed_monocular(message, 0);
+  } 
+ else if (num_images == 2 && use_stereo) {
     feed_stereo(message, 0, 1);
   }
  else {
-    PRINT_ERROR(RED "[ERROR]: invalid number of images passed %zu, SuperPointGlue Tracker only supports stereo images at this time\n", num_images);
+    PRINT_ERROR(RED "[ERROR]: invalid number of images passed %zu, SuperPointGlue Tracker only supports monocular or stereo images at this time\n", num_images);
     std::exit(EXIT_FAILURE);
   }
+}
+
+void TrackSuperPointGlue::feed_monocular(const CameraData &message, size_t msg_id) {
+
+  // Start timing
+  rT1 = boost::posix_time::microsec_clock::local_time();
+
+  // Lock this data feed for this camera
+  size_t cam_id = message.sensor_ids.at(msg_id);
+  std::lock_guard<std::mutex> lck(mtx_feeds.at(cam_id));
+
+  // Histogram equalize
+  cv::Mat img, mask;
+  if (histogram_method == HistogramMethod::HISTOGRAM) {
+    cv::equalizeHist(message.images.at(msg_id), img);
+  } else if (histogram_method == HistogramMethod::CLAHE) {
+    double eq_clip_limit = 10.0;
+    cv::Size eq_win_size = cv::Size(8, 8);
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(eq_clip_limit, eq_win_size);
+    clahe->apply(message.images.at(msg_id), img);
+  } else {
+    img = message.images.at(msg_id);
+  }
+  mask = message.masks.at(msg_id);
+
+  // If we are the first frame (or have lost tracking), initialize our descriptors
+  if (pts_last.find(cam_id) == pts_last.end() || pts_last[cam_id].empty()) {
+    std::vector<cv::KeyPoint> good_left;
+    std::vector<size_t> good_ids_left;
+    Eigen::Matrix<double,259,Eigen::Dynamic> good_desc_left;
+    perform_detection_monocular(img, mask, good_left, good_desc_left, good_ids_left);
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_last[cam_id] = img;
+    img_mask_last[cam_id] = mask;
+    pts_last[cam_id] = good_left;
+    ids_last[cam_id] = good_ids_left;
+    desc_last[cam_id] = good_desc_left;
+    return;
+  }
+
+  // Our new keypoints and descriptor for the new image
+  std::vector<cv::KeyPoint> pts_new;
+  Eigen::Matrix<double,259,Eigen::Dynamic> desc_new;
+  std::vector<size_t> ids_new;
+
+  // First, extract new descriptors for this new image
+  perform_detection_monocular(img, mask, pts_new, desc_new, ids_new);
+  rT2 = boost::posix_time::microsec_clock::local_time();
+
+  // Our matches temporally
+  std::vector<cv::DMatch> matches_ll;
+
+  // Lets match temporally
+  // Do a check before using the SuperGlue Engine to ensure there are features. Else, SuperGlue will give a segmentation fault error. 
+  // WARNING: This would mean that we will have to re-initialize our descriptors if no features are found in the current set of images. 
+  if(desc_new.cols()>0)
+  {
+
+  SuperGlue_Eng->matching_points(desc_last[cam_id],desc_new,matches_ll);
+  }
+  rT3 = boost::posix_time::microsec_clock::local_time();
+  std::cout<<"GOT "<<matches_ll.size()<<" MATCHES IN CURRENT FRAME\n"<<std::endl;
+  // Get our "good tracks"
+  std::vector<cv::KeyPoint> good_left;
+  std::vector<size_t> good_ids_left;
+  Eigen::Matrix<double,259,Eigen::Dynamic> good_desc_left;
+
+  // Count how many we have tracked from the last time
+  int num_tracklast = 0;
+
+  // Resize the Eigen::Matrix vectors so that we can populate it with the score_points+descriptors and add it to our database
+  int num_cols_new_desc = pts_new.size();
+  good_desc_left.resize(259,num_cols_new_desc);
+
+  // Loop through all current left to right points
+  // We want to see if any of theses have matches to the previous frame
+  // If we have a match new->old then we want to use that ID instead of the new one
+  for (size_t i = 0; i < pts_new.size(); i++) {
+
+    // Loop through all left matches, and find the old "train" id
+    int idll = -1;
+    for (size_t j = 0; j < matches_ll.size(); j++) {
+      if (matches_ll[j].trainIdx == (int)i) {
+        idll = matches_ll[j].queryIdx;
+      }
+    }
+
+    // Then lets replace the current ID with the old ID if found
+    // Else just append the current feature and its unique ID
+    good_left.push_back(pts_new[i]);
+    good_desc_left.col(i) = desc_new.col(i);
+    if (idll != -1) {
+      good_ids_left.push_back(ids_last[cam_id][idll]);
+      num_tracklast++;
+    } else {
+      good_ids_left.push_back(ids_new[i]);
+    }
+  }
+  rT4 = boost::posix_time::microsec_clock::local_time();
+
+  // Update our feature database, with theses new observations
+  for (size_t i = 0; i < good_left.size(); i++) {
+    cv::Point2f npt_l = camera_calib.at(cam_id)->undistort_cv(good_left.at(i).pt);
+    database->update_feature(good_ids_left.at(i), message.timestamp, cam_id, good_left.at(i).pt.x, good_left.at(i).pt.y, npt_l.x, npt_l.y);
+  }
+
+  // Debug info
+  // PRINT_DEBUG("LtoL = %d | good = %d | fromlast = %d\n",(int)matches_ll.size(),(int)good_left.size(),num_tracklast);
+
+  // Move forward in time
+  {
+    std::lock_guard<std::mutex> lckv(mtx_last_vars);
+    img_last[cam_id] = img;
+    img_mask_last[cam_id] = mask;
+    pts_last[cam_id] = good_left;
+    ids_last[cam_id] = good_ids_left;
+    desc_last[cam_id] = good_desc_left;
+  }
+  rT5 = boost::posix_time::microsec_clock::local_time();
+
+  // Our timing information
+  PRINT_ALL("[TIME-DESC]: %.4f seconds for detection\n", (rT2 - rT1).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-DESC]: %.4f seconds for matching\n", (rT3 - rT2).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-DESC]: %.4f seconds for merging\n", (rT4 - rT3).total_microseconds() * 1e-6);
+  PRINT_ALL("[TIME-DESC]: %.4f seconds for feature DB update (%d features)\n", (rT5 - rT4).total_microseconds() * 1e-6,
+            (int)good_left.size());
+  PRINT_ALL("[TIME-DESC]: %.4f seconds for total\n", (rT5 - rT1).total_microseconds() * 1e-6);
 }
 
 void TrackSuperPointGlue::feed_stereo(const CameraData &message, size_t msg_id_left, size_t msg_id_right) {
@@ -100,15 +229,7 @@ void TrackSuperPointGlue::feed_stereo(const CameraData &message, size_t msg_id_l
   // WARNING: This would mean that we will have to re-initialize our descriptors if no features are found in the current set of images. 
   if(desc_left_new.cols()>0 && desc_right_new.cols()>0)
   {
-  // Perform temporal matching using the score+points+desc Matrices and the SuperGlue Engine. Since its being done in parallel, two instances of the engine
-  // are being used. If this is too computationally expensive, we can get rid of the parallelism and stick with one SuperGlue engine.
-  // Question: Does it matter what order we send the Matrices since we are doing temporal matching? For now, I have followed the same order as OpenVINS.
-  //parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
-  //               for (int i = range.start; i < range.end; i++) {
-  //                  bool is_left = (i == 0);
-  //                  (is_left ? SuperGlue_Eng0 : SuperGlue_Eng1)->matching_points(desc_last[is_left ? cam_id_left : cam_id_right], is_left ? desc_left_new : desc_right_new, is_left ? matches_ll : matches_rr);
-  //                }
-  //              }));
+
   SuperGlue_Eng->matching_points(desc_last[cam_id_left],desc_left_new,matches_ll);
   SuperGlue_Eng->matching_points(desc_last[cam_id_right],desc_right_new,matches_rr);
   }
@@ -221,6 +342,90 @@ void TrackSuperPointGlue::feed_stereo(const CameraData &message, size_t msg_id_l
   PRINT_ALL("[TIME-DESC]: %.4f seconds for total\n", (rT5 - rT1).total_microseconds() * 1e-6);
 }
 
+void TrackSuperPointGlue::perform_detection_monocular(const cv::Mat &img0, const cv::Mat &mask0, std::vector<cv::KeyPoint> &pts0,
+                                                  Eigen::Matrix<double,259,Eigen::Dynamic> &desc0, std::vector<size_t> &ids0) {
+
+  // Assert that we need features
+  assert(pts0.empty());
+
+  Eigen::Matrix<double,259,Eigen::Dynamic> pts_desc_0; 
+  cv::Mat Im0;
+
+  //Resize the images to fit with the requirements of the Inference Engines
+  //NOTE: This is redundant if the Engines expect the image dimensions to be the resolution of the camera. 
+  //TODO: If the resolution and image dimensions expected by the Engines are different, we should scale the keypoints back to the camera resolution scale.
+  cv::resize(img0, Im0, cv::Size(width, height));
+
+  // Extract our features (using the SuperPoint Engine, instead of ORB as used by OpenVINS), and their descriptors as an Eigen Matrix.
+  // Note: SuperPoint extracts keypoints and descriptors and stores them together along with a confidence score in an Eigen Matrix.
+  // The dimensions of the Matrix are 259 x num_keypoints_detected. The first row contains the confidence score, followed by the x, y pixel
+  // coordinates in the second and third rows, respectively. The final 256 rows store the descriptors for each point to be used by SuperGlue.
+  std::vector<cv::KeyPoint> pts0_ext;
+
+  if(!SuperPoint_Eng->infer(Im0,pts_desc_0))
+  {
+    PRINT_WARNING("Failed to extract features from Camera 0!\n");
+		return;
+  }
+
+  // Extract KeyPoints and the confidence score from the Eigen Matrix and store them in a KeyPoints vector to be stored in the OpenVINS database of features.
+ 
+  for(size_t i = 0; i < pts_desc_0.cols(); i++)
+			{
+				double score = pts_desc_0(0,i);
+				double x = pts_desc_0(1,i);
+				double y = pts_desc_0(2,i);
+				pts0_ext.emplace_back(x,y,8,-1,score);
+			}
+
+  // Create a 2D occupancy grid for this current image
+  // Note that we scale this down, so that each grid point is equal to a set of pixels
+  // This means that we will reject points that less then grid_px_size points away then existing features
+  cv::Size size((int)((float)img0.cols / (float)min_px_dist), (int)((float)img0.rows / (float)min_px_dist));
+  cv::Mat grid_2d = cv::Mat::zeros(size, CV_8UC1);
+
+
+  // Store the indexes of the matched points to be used to create returning Eigen::Matrices
+
+  std::vector<size_t> pts0Vec;
+
+  // For all good matches, lets append to our returned vectors
+  // NOTE: if we multi-thread this atomic can cause some randomness due to multiple thread detecting features
+  // NOTE: this is due to the fact that we select update features based on feat id
+  // NOTE: thus the order will matter since we try to select oldest (smallest id) to update with
+  // NOTE: not sure how to remove... maybe a better way?
+  for (size_t i = 0; i < pts0_ext.size(); i++) {
+    // Get current left keypoint, check that it is in bounds
+    cv::KeyPoint kpt = pts0_ext.at(i);
+    int x = (int)kpt.pt.x;
+    int y = (int)kpt.pt.y;
+    int x_grid = (int)(kpt.pt.x / (float)min_px_dist);
+    int y_grid = (int)(kpt.pt.y / (float)min_px_dist);
+    if (x_grid < 0 || x_grid >= size.width || y_grid < 0 || y_grid >= size.height || x < 0 || x >= img0.cols || y < 0 || y >= img0.rows) {
+      continue;
+    }
+    // Check if this keypoint is near another point
+    if (grid_2d.at<uint8_t>(y_grid, x_grid) > 127)
+      continue;
+    // Else we are good, append our keypoints and descriptors
+    pts0.push_back(pts0_ext.at(i));
+    pts0Vec.push_back(i);
+    // Set our IDs to be unique IDs here, will later replace with corrected ones, after temporal matching
+    size_t temp = ++currid;
+    ids0.push_back(temp);
+    grid_2d.at<uint8_t>(y_grid, x_grid) = 255;
+  }
+
+  // Store the selected indices' confidence scores+keypoints+descriptors In the Eigen Matrix. This needs to be done seperately since Eigen requires the 
+  // dimenstions of the matrix to be known before we can store data.
+  int num_cols_new = pts0Vec.size();
+  desc0.resize(259,num_cols_new);
+  for(size_t i = 0; i < pts0Vec.size(); i++)
+  {
+    desc0.col(i) = pts_desc_0.col(pts0Vec[i]);
+  }
+}
+
 void TrackSuperPointGlue::perform_detection_stereo(const cv::Mat &img0, const cv::Mat &img1, const cv::Mat &mask0, const cv::Mat &mask1,
                                                std::vector<cv::KeyPoint> &pts0, std::vector<cv::KeyPoint> &pts1, Eigen::Matrix<double,259,Eigen::Dynamic> &desc0,
                                                Eigen::Matrix<double,259,Eigen::Dynamic> &desc1, size_t cam_id0, size_t cam_id1, std::vector<size_t> &ids0,
@@ -230,26 +435,26 @@ void TrackSuperPointGlue::perform_detection_stereo(const cv::Mat &img0, const cv
   assert(pts0.empty());
   assert(pts1.empty());
 
-  // Extract our features (using the SuperPoint Engine, instead of ORB as used by OpenVINS), and their descriptors as an Eigen Matrix.
-  // Note: SuperPoint extracts keypoints and descriptors and stores them together along with a confidence score in an Eigen Matrix.
-  // The dimensions of the Matrix are 259 x num_keypoints_detected. The first row contains the confidence score, followed by the x, y pixel
-  // coordinates in the second and third rows, respectively. The final 256 rows store the descriptors for each point to be used by SuperGlue.
+  Eigen::Matrix<double,259,Eigen::Dynamic> pts_desc_0, pts_desc_1; 
 
   // Assumption: The original OpenVINS implementation preprocesses the images using GriderFAST algorithm. We will be skipping this, and SuperPoint should
   // still work properly.
 
   // Question: What is the use of these masks that is implemented in the Descriptor Tracker as seen in TrackDescriptor.cpp in this same function?
-  Eigen::Matrix<double,259,Eigen::Dynamic> pts_desc_0, pts_desc_1; 
+
+  //Resize the images to fit with the requirements of the Inference Engines
+  //NOTE: This is redundant if the Engines expect the image dimensions to be the resolution of the camera. 
+  //TODO: If the resolution and image dimensions expected by the Engines are different, we should scale the keypoints back to the camera resolution scale.
   cv::Mat Im0, Im1, match_image;
   cv::resize(img0, Im0, cv::Size(width, height));
   cv::resize(img1, Im1, cv::Size(width, height));
   std::vector<cv::KeyPoint> pts0_ext, pts1_ext;
-//  parallel_for_(cv::Range(0, 2), LambdaBody([&](const cv::Range &range) {
-//                  for (int i = range.start; i < range.end; i++) {
-//                    bool is_left = (i == 0);
-//                    (is_left ? SuperPoint_Eng0 : SuperPoint_Eng1)->infer(is_left ? img0 : img1, is_left ? pts_desc_0 : pts_desc_1);
-//                  }
-//                }));
+
+  // Extract our features (using the SuperPoint Engine, instead of ORB as used by OpenVINS), and their descriptors as an Eigen Matrix.
+  // Note: SuperPoint extracts keypoints and descriptors and stores them together along with a confidence score in an Eigen Matrix.
+  // The dimensions of the Matrix are 259 x num_keypoints_detected. The first row contains the confidence score, followed by the x, y pixel
+  // coordinates in the second and third rows, respectively. The final 256 rows store the descriptors for each point to be used by SuperGlue.
+
   if(!SuperPoint_Eng->infer(Im0,pts_desc_0))
   {
     PRINT_WARNING("Failed to extract features from Camera 0!\n");
@@ -355,6 +560,7 @@ void TrackSuperPointGlue::perform_detection_stereo(const cv::Mat &img0, const cv
   }
   // Here we take the corresponding columns vectors from the Eigen::Matrix returned by SuperGlue and store the filtered scores+points+descriptors from
   // the matches in another Eigen::Matrix which is will be stored in the desc_last database to perform temporal matching.
+  // This needs to be done seperately since Eigen requires the dimenstions of the matrix to be known before we can store data.
   int num_cols_new = pts0Vec.size();
   desc0.resize(259,num_cols_new);
   desc1.resize(259,num_cols_new);

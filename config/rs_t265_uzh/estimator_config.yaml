@@ -4,23 +4,23 @@ verbosity: "INFO" # ALL, DEBUG, INFO, WARNING, ERROR, SILENT
 
 use_fej: true # if first-estimate Jacobians should be used (enable for good consistency)
 integration: "rk4" # discrete, rk4, analytical (if rk4 or analytical used then analytical covariance propagation is used)
-use_stereo: true # if we have more than 1 camera, if we should try to track stereo constraints between pairs
-max_cameras: 2 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
+use_stereo: false # if we have more than 1 camera, if we should try to track stereo constraints between pairs
+max_cameras: 1 # how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)
 
 calib_cam_extrinsics: true # if the transform between camera and IMU should be optimized R_ItoC, p_CinI
 calib_cam_intrinsics: true # if camera intrinsics should be optimized (focal, center, distortion)
 calib_cam_timeoffset: true # if timeoffset between camera and IMU should be optimized
-calib_imu_intrinsics: false # if imu intrinsics should be calibrated (rotation and skew-scale matrix)
-calib_imu_g_sensitivity: false # if gyroscope gravity sensitivity (Tg) should be calibrated
+calib_imu_intrinsics: true # if imu intrinsics should be calibrated (rotation and skew-scale matrix)
+calib_imu_g_sensitivity: true # if gyroscope gravity sensitivity (Tg) should be calibrated
 
-max_clones: 11 # how many clones in the sliding window
-max_slam: 100 # number of features in our state vector
-max_slam_in_update: 25 # update can be split into sequential updates of batches, how many in a batch
-max_msckf_in_update: 300 # how many MSCKF features to use in the update
-dt_slam_delay: 1 # delay before initializing (helps with stability from bad initialization...)
+max_clones: 15 # 15 # how many clones in the sliding window
+max_slam: 100 # 50 # number of features in our state vector
+max_slam_in_update: 40 #25 # update can be split into sequential updates of batches, how many in a batch
+max_msckf_in_update: 200 # how many MSCKF features to use in the update
+dt_slam_delay: 0.5 #1 # delay before initializing (helps with stability from bad initialization...)
 
-gravity_mag: 9.81 # magnitude of gravity in this location
-
+gravity_mag: 9.81 # 9.53 #9.8065 # magnitude of gravity in this location
+# GLOBAL_3D, GLOBAL_FULL_INVERSE_DEPTH, ANCHORED_3D, ANCHORED_FULL_INVERSE_DEPTH, ANCHORED_MSCKF_INVERSE_DEPTH, ANCHORED_INVERSE_DEPTH_SINGLE
 feat_rep_msckf: "GLOBAL_3D"
 feat_rep_slam: "ANCHORED_MSCKF_INVERSE_DEPTH"
 feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
@@ -32,11 +32,11 @@ zupt_chi2_multipler: 0 # set to 0 for only disp-based
 zupt_max_velocity: 0.1
 zupt_noise_multiplier: 10
 zupt_max_disparity: 0.5 # set to 0 for only imu-based
-zupt_only_at_beginning: false
+zupt_only_at_beginning: true
 
 # ==================================================================
 # ==================================================================
-
+pass_wait_for_jerk: false # if we should pass wait for a jerk during initialization
 init_window_time: 2.0 # how many seconds to collect initialization information
 init_imu_thresh: 1.5 # threshold for variance of the accelerometer to detect a "jerk" in motion
 init_max_disparity: 10.0 # max disparity to consider the platform stationary (dependent on resolution)
@@ -76,17 +76,43 @@ filepath_gt: "/tmp/ov_groundtruth.txt"
 # ==================================================================
 
 # our front-end feature tracking parameters
-use_klt: false # if true we will use KLT, otherwise use SuperPoint/SuperGlue.
-num_pts: 200 # number of points (per camera) we will extract and try to track
-fast_threshold: 20 # threshold for fast extraction (warning: lower threshs can be expensive)
-grid_x: 5 # extraction sub-grid count for horizontal direction (uniform tracking)
-grid_y: 5 # extraction sub-grid count for vertical direction (uniform tracking)
-min_px_dist: 10 # distance between features (features near each other provide less information)
+# we have a KLT and descriptor based (KLT is better implemented...)
+use_klt: false # if true we will use KLT, otherwise use a ORB descriptor + robust matching
+use_patch: true 
+num_pts: 200 #200 # number of points (per camera) we will extract and try to track
+fast_threshold: 4 # threshold for fast extraction (warning: lower threshs can be expensive)
+grid_x: 15 # 5 extraction sub-grid count for horizontal direction (uniform tracking)
+grid_y: 15 # 5 extraction sub-grid count for vertical direction (uniform tracking)
+min_px_dist: 2 # 15 # distance between features (features near each other provide less information)
 knn_ratio: 0.70 # descriptor knn threshold for the top two descriptor matches
-track_frequency: 21.0 # frequency we will perform feature tracking at (in frames per second / hertz)
+track_frequency: 150.0 # frequency we will perform feature tracking at (in frames per second / hertz)
 downsample_cameras: false # will downsample image in half if true
-num_opencv_threads: 4 # -1: auto, 0-1: serial, >1: number of threads
-histogram_method: "HISTOGRAM" # NONE, HISTOGRAM, CLAHE
+num_opencv_threads: 0 # -1: auto, 0-1: serial, >1: number of threads
+histogram_method: "HISTOGRAM" #"FASTHISTOGRAM" # NONE, HISTOGRAM, CLAHE, MSR, FASTHISTOGRAM
+
+klt_pyr_levels: 2 #6 # number of pyramid levels for KLT
+klt_win_size: 25 # window size for KLT
+klt_fast_type: 0 # (0 = FAST, 1 = AGAST_5_8, 2 = AGAST_7_12d, 3 = AGAST_7_12s, 4 =  OAST_9_16, 5 = FAST_NEON, 6 = FAST_NEON_VGA)
+klt_tracker_type: 0 # (0 = KLT, 1 = RLOF)
+klt_predict_from_imu: 1 # (0 = no, 1 = yes)
+
+#fi_max_dist: 10.0
+#fi_max_baseline: 250
+#fi_max_cond_number: 35000 # 25000
+
+fi_min_dist: 0.2 # 1.0
+fi_max_dist: 10.0
+fi_max_baseline: 250 # 200 
+fi_max_cond_number: 35000 # 25000
+fi_max_runs: 20
+fi_triangulate_1d: false
+
+fundamental_matrix_method: 0 # (0 = FM_RANSAC, 1 = USAC_MAGSAC, 2 = 5-point ransac for mono tracking, 3 = STEWENIUS opengv ransac)
+opengv_algorithm: 3 # (STEWENIUS = 0, NISTER = 1, SEVENPT = 2, EIGHTPT = 3 )
+usac_max_iterations: 1000 # 1000 max iterations for USAC
+usac_confidence: 0.999 # 0.999 confidence for USAC
+usac_lo_sample_size: 10 # local optimization sample size for USAC
+usac_lo_iterations: 10 # local optimization iterations for USAC
 
 # aruco tag tracker for the system
 # DICT_6X6_1000 from https://chev.me/arucogen/
@@ -109,7 +135,17 @@ up_superpointglue_sigma_px: 1
 up_superpointglue_chi2_multipler: 1
 
 # masks for our images
-use_mask: false
+use_mask: true
+mask0: "mask_t265_cam1.png" #relative to current file
+#mask0: "mask_t265_cam1_downsample.png" #relative to current file
+
+# image downsample of output image
+image_output_downsample: false
+display_active_image: false
+publish_path: true
+
+use_multi_threading_subs: false
+use_multi_threading_pubs: true
 
 # imu and camera spacial-temporal
 # imu config should also have the correct noise values

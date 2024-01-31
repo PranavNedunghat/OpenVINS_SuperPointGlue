@@ -6,11 +6,11 @@
     <arg name="config_path" default="$(find ov_msckf)/../config/$(arg config)/estimator_config.yaml" />
 
     <!-- mono or stereo and what ros bag to play -->
-    <arg name="max_cameras" default="2" />
-    <arg name="use_stereo"  default="true" />
+    <arg name="max_cameras" default="1" />
+    <arg name="use_stereo"  default="false" />
     <arg name="bag_start"   default="0" /> <!-- v1-2: 0, mh1: 40, mh2: 35, mh3: 17.5, mh4-5: 15 -->
     <arg name="bag_rate"    default="1" />
-    <arg name="dataset"     default="V1_01_easy" /> <!-- V1_01_easy, V1_02_medium, V2_02_medium -->
+    <arg name="dataset"     default="V2_03_difficult" /> <!-- V1_01_easy, V1_02_medium, V2_02_medium -->
     <arg name="dobag"       default="false" /> <!-- if we should play back the bag -->
     <arg name="bag"         default="/media/patrick/RPNG\ FLASH\ 3/$(arg config)/$(arg dataset).bag" />
 <!--    <arg name="bag"         default="/home/patrick/datasets/$(arg config)/$(arg dataset).bag" />-->

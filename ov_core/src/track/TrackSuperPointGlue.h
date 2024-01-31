@@ -34,9 +34,9 @@ public:
    * @param knnratio matching ratio needed (smaller value forces top two descriptors during match to be more different)
    */
   explicit TrackSuperPointGlue(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
-                           HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist, double knnratio)
-      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
-        min_px_dist(minpxdist), knn_ratio(knnratio) 
+                           HistogramMethod histmethod, int gridx, int gridy, int minpxdist)
+      : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), grid_x(gridx), grid_y(gridy),
+        min_px_dist(minpxdist)
         {
             config_path = "/home/pranav/catkin_ws/src/superpoint_superglue/config/config.yaml";
 		        model_dir =  "/home/pranav/catkin_ws/src/superpoint_superglue/weights/";
@@ -77,6 +77,13 @@ protected:
    * @param msg_id the camera index in message data vector
    */
 
+  void feed_monocular(const CameraData &message, size_t msg_id);
+  /**
+   * @brief Process new stereo pair of images
+   * @param message Contains our timestamp, images, and camera ids
+   * @param msg_id_left first image index in message data vector
+   * @param msg_id_right second image index in message data vector
+   */
   void feed_stereo(const CameraData &message, size_t msg_id_left, size_t msg_id_right);
 
   /**
@@ -90,8 +97,10 @@ protected:
    * Given a set of images, and their currently extracted features, this will try to add new features.
    * We return all extracted descriptors here since we DO NOT need to do stereo tracking left to right.
    * Our vector of IDs will be later overwritten when we match features temporally to the previous frame's features.
-   * See robust_match() for the matching.
    */
+
+  void perform_detection_monocular(const cv::Mat &img0, const cv::Mat &mask0, std::vector<cv::KeyPoint> &pts0,
+                                                  Eigen::Matrix<double,259,Eigen::Dynamic> &desc0, std::vector<size_t> &ids0);
 
   void perform_detection_stereo(const cv::Mat &img0, const cv::Mat &img1, const cv::Mat &mask0, const cv::Mat &mask1,
                                                std::vector<cv::KeyPoint> &pts0, std::vector<cv::KeyPoint> &pts1, Eigen::Matrix<double,259,Eigen::Dynamic> &desc0,
@@ -108,42 +117,16 @@ protected:
    * @param id1 id of the second camera
    * @param matches vector of matches that we have found
    *
-   * This will perform a "robust match" between the two sets of points (slow but has great results).
-   * First we do a simple KNN match from 1to2 and 2to1, which is followed by a ratio check and symmetry check.
-   * Original code is from the "RobustMatcher" in the opencv examples, and seems to give very good results in the matches.
-   * https://github.com/opencv/opencv/blob/master/samples/cpp/tutorial_code/calib3d/real_time_pose_estimation/src/RobustMatcher.cpp
    */
-  //void robust_match(const std::vector<cv::KeyPoint> &pts0, const std::vector<cv::KeyPoint> &pts1, const cv::Mat &desc0,
-  //                  const cv::Mat &desc1, size_t id0, size_t id1, std::vector<cv::DMatch> &matches);
-
-  // Helper functions for the robust_match function
-  // Original code is from the "RobustMatcher" in the opencv examples
-  // https://github.com/opencv/opencv/blob/master/samples/cpp/tutorial_code/calib3d/real_time_pose_estimation/src/RobustMatcher.cpp
-  //void robust_ratio_test(std::vector<std::vector<cv::DMatch>> &matches);
-  //void robust_symmetry_test(std::vector<std::vector<cv::DMatch>> &matches1, std::vector<std::vector<cv::DMatch>> &matches2,
-  //                          std::vector<cv::DMatch> &good_matches);
 
   // Timing variables
   boost::posix_time::ptime rT1, rT2, rT3, rT4, rT5, rT6, rT7;
-
-  // Our orb extractor
-  //cv::Ptr<cv::ORB> orb0 = cv::ORB::create();
-  //cv::Ptr<cv::ORB> orb1 = cv::ORB::create();
-
-  // Our descriptor matcher
-  //cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create("BruteForce-Hamming");
-
-  // Parameters for our FAST grid detector
   int threshold;
   int grid_x;
   int grid_y;
 
   // Minimum pixel distance to be "far away enough" to be a different extracted feature
   int min_px_dist;
-
-  // The ratio between two kNN matches, if that ratio is larger then this threshold
-  // then the two features are too close, so should be considered ambiguous/bad match
-  double knn_ratio;
 
   // Confidence Score + Keypoints + Descriptor matrices for SuperGlue matching.
   std::unordered_map<size_t, Eigen::Matrix<double,259,Eigen::Dynamic>> desc_last;
